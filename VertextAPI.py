@@ -17,10 +17,10 @@ def synthesize_from_file_japanese(video_code: str):
     
     # audio_output_directory = "/home/ethan/GoogleVertexAudio"
     # os.makedirs(audio_output_directory, exist_ok=True)
+    # gcs_output_uri_text ='gs://eng_to_japanese_podcasts_ex/Podcast_text/'
 
     text_output_directory = "/home/ethan/GoogleVertexAudio/textfiles"
     os.makedirs(text_output_directory, exist_ok=True)
-    # gcs_output_uri_text ='gs://eng_to_japanese_podcasts_ex/Podcast_text/'
 
     video_name = get_video_title(video_code).replace(' ', '_')
     english_transcript = get_transcript(video_code)
@@ -51,10 +51,18 @@ def synthesize_from_file_japanese(video_code: str):
         out_text_file.write(original_japanese_text)
         print(f'Translated text content written to file: {text_output_file_path}')
     
+    # 2. Upload Txt to GCS
+    storage_client = storage.Client(project=PROJECT_ID)
+    bucket = storage_client.bucket("eng_to_japanese_podcasts_ex")
+    blob = bucket.blob(f"Podcast_text/{video_name}.ssml")
+    blob.upload_from_filename(text_output_file_path)
+
+
     gcs_output_uri_audio =f'gs://eng_to_japanese_podcasts_ex/Podcast_audio/{video_name}_JP.wav'
     # --- Step 5: Synthesize the Japanese text into audio ---
     client = tts.TextToSpeechLongAudioSynthesizeClient()
-    
+    synthesis_input = tts.SynthesisInput(text=final_japanese_text)
+
     voice_options = {
         # Chirp3-HD Voices
         "ja-JP-Chirp3-HD-Achernar": tts.SsmlVoiceGender.FEMALE,
@@ -105,31 +113,26 @@ def synthesize_from_file_japanese(video_code: str):
         # "ja-JP-Wavenet-C": tts.SsmlVoiceGender.MALE,
         # "ja-JP-Wavenet-D": tts.SsmlVoiceGender.MALE,
         }
-
     selected_voice_name = random.choice(list(voice_options.keys()))
     selected_gender = voice_options[selected_voice_name]
-    print(selected_voice_name, selected_gender)
-    
-
-    synthesis_input = tts.SynthesisInput(text=final_japanese_text)
     voice = tts.VoiceSelectionParams(
         language_code="ja-JP" ,
         name=selected_voice_name,
         ssml_gender=selected_gender,
     )
-    
+    print(selected_voice_name, selected_gender)
     audio_config = tts.AudioConfig(audio_encoding=tts.AudioEncoding.LINEAR16)
     
+    # crafting the request:
     request = tts.SynthesizeLongAudioRequest(
         parent=f"projects/{PROJECT_ID}/locations/us-central1",
         input=synthesis_input,
-        # input=input_source,
         audio_config=audio_config,
         voice=voice,
         output_gcs_uri=gcs_output_uri_audio,
     )
-
     operation = client.synthesize_long_audio(request=request)
+
     try:
         print("Waiting for long audio synthesis to complete...")
         operation.result(timeout=300)
