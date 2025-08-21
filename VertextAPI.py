@@ -1,10 +1,23 @@
 
 # -*- coding: utf-8 -*-
-from google.cloud import texttospeech  as tts
-# from google.cloud import texttospeech_v1 as tts # didnt work 
+# from google.cloud import texttospeech  as tts
+from google.cloud import texttospeech_v1 as tts # didnt work 
 # from google.cloud import texttospeech_v1beta1  as tts # didnt work
+
+from google.cloud.texttospeech_v1.services.text_to_speech_long_audio_synthesize import (
+    TextToSpeechLongAudioSynthesizeClient,
+)
+from google.cloud.texttospeech_v1.types import (
+    SynthesizeLongAudioRequest,
+    SynthesisInputFromGcs,
+    GcsSource,
+    VoiceSelectionParams,
+    AudioConfig,
+    AudioEncoding,
+)
+
 import random
-from YTextractor import final_check_long_sentences, get_transcript, get_video_title, translate_text, split_long_sentences
+from YTextractor import ssml_split_long_sentences, final_check_long_sentences, get_transcript, get_video_title, translate_text, split_long_sentences
 import os
 import unicodedata
 from google.cloud import storage
@@ -23,14 +36,16 @@ def synthesize_from_file_japanese(video_code: str):
     os.makedirs(text_output_directory, exist_ok=True)
 
     video_name = get_video_title(video_code).replace(' ', '_')
-    english_transcript = get_transcript(video_code)
+    english_transcript = get_transcript(video_code).replace("[ __ ]"," ").replace("&#39;","")
+    # print(english_transcript)
 
     original_japanese_text = translate_text(english_transcript)
     final_japanese_text = split_long_sentences(original_japanese_text)
-
     final_japanese_text =  unicodedata.normalize("NFC", final_japanese_text)
     final_check_long_sentences(final_japanese_text)
 
+    ssml_final_japanese_text = ssml_split_long_sentences(original_japanese_text)
+    
 
     # # 1. Save SSML to local file
     # ssml_path = f"/tmp/{video_name}.ssml"
@@ -43,25 +58,50 @@ def synthesize_from_file_japanese(video_code: str):
     # blob = bucket.blob(f"Podcast_text/{video_name}.ssml")
     # blob.upload_from_filename(ssml_path)
 
-    # gcs_input_uri = f"gs://{bucket.name}/Podcast_text/{video_name}.ssml"
-        # print(final_japanese_text)
+    # print(final_japanese_text)
 
     text_output_file_path = os.path.join(text_output_directory, f"{video_name}_JP.txt")
     with open(text_output_file_path, "w", encoding="utf-8") as out_text_file:
         out_text_file.write(original_japanese_text)
         print(f'Translated text content written to file: {text_output_file_path}')
     
+    
+    ssml_output_file_path = os.path.join(text_output_directory, f"{video_name}.ssml")
+    with open(ssml_output_file_path, "w", encoding="utf-8") as out_text_file:
+        out_text_file.write(ssml_final_japanese_text)
+        print(f'Translated text content written to SSML and sent to file: {ssml_output_file_path}')
+    
+    
     # 2. Upload Txt to GCS
     storage_client = storage.Client(project=PROJECT_ID)
     bucket = storage_client.bucket("eng_to_japanese_podcasts_ex")
     blob = bucket.blob(f"Podcast_text/{video_name}.ssml")
-    blob.upload_from_filename(text_output_file_path)
+    blob.upload_from_filename(ssml_output_file_path, content_type="text/plain; charset=utf-8")
 
-
+    gcs_output_uri_ssml = f"gs://eng_to_japanese_podcasts_ex/Podcast_text/{video_name}.ssml"
     gcs_output_uri_audio =f'gs://eng_to_japanese_podcasts_ex/Podcast_audio/{video_name}_JP.wav'
     # --- Step 5: Synthesize the Japanese text into audio ---
     client = tts.TextToSpeechLongAudioSynthesizeClient()
-    synthesis_input = tts.SynthesisInput(text=final_japanese_text)
+
+    # old synthesis_input when using short form tts
+    # synthesis_input = tts.SynthesisInput(text=final_japanese_text)
+    
+    # new input option:
+    gcs_source = tts.GcsSource(uris=[gcs_output_uri_ssml])
+    input = tts.SynthesisInputFromGcs(gcs_source=gcs_source)
+
+
+    # input  = tts.SynthesisInput(ssml=gcs_output_uri_ssml)
+    # input.ssml = ssml_final_japanese_text
+    # print(len(ssml_final_japanese_text.encode('utf-8')))
+
+
+
+    # gcs_source = tts.GcsSource(uris=[f"gs://{bucket.name}/Podcast_text/{video_name}.txt"])
+    # synthesis_input = tts.SynthesisInputFromGcs(gcs_source=gcs_source)
+
+    # synthesis_input = tts.SynthesisInput(ssml_gcs_uri=gcs_input_uri)
+    # print(synthesis_input)
 
     voice_options = {
         # Chirp3-HD Voices
@@ -124,14 +164,16 @@ def synthesize_from_file_japanese(video_code: str):
     audio_config = tts.AudioConfig(audio_encoding=tts.AudioEncoding.LINEAR16)
     
     # crafting the request:
+    print(input)
     request = tts.SynthesizeLongAudioRequest(
         parent=f"projects/{PROJECT_ID}/locations/us-central1",
-        input=synthesis_input,
+        input=input,
         audio_config=audio_config,
         voice=voice,
         output_gcs_uri=gcs_output_uri_audio,
     )
     operation = client.synthesize_long_audio(request=request)
+
 
     try:
         print("Waiting for long audio synthesis to complete...")
@@ -144,4 +186,4 @@ def synthesize_from_file_japanese(video_code: str):
 if __name__ == "__main__":
     # videoID = input("Enter the video ID code: ")
     # synthesize_from_file_japanese(videoID)
-    synthesize_from_file_japanese("FFIs6LsV0a4")
+    synthesize_from_file_japanese("nZ1Oa_uHsLo")

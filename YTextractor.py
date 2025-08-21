@@ -3,7 +3,6 @@ from youtube_transcript_api import YouTubeTranscriptApi
 from googleapiclient.discovery import build
 from google.cloud import translate_v2 as translate
 import os
-import sys
 from dotenv import load_dotenv
 load_dotenv()
 YOUTUBE_API_KEY = os.getenv("API_KEY")
@@ -41,14 +40,23 @@ def translate_text(text_to_translate):
         target_language='ja',
         source_language='en'
     )
-    final_result = result['translatedText'].replace(' \n',' ').replace(".","。").replace("＾","").replace("＼",'。').replace("⟪","")
-    
+    final_result = result['translatedText'].replace(' \n',' ').replace(".","。 ").replace("&#39;","")
     return final_result
+
+def ssml_split_long_sentences(text: str) -> str:
+    final_text = '<speak> '
+    sentences = text.split('。')
+    for sentence in sentences:
+        final_text += f' <s> {sentence} </s> '
+    final_text += " </speak>"
+    return final_text
+
 
 def split_long_sentences(text: str) -> str:
     text_to_process = text
     check_is_needed = True
-    if len(text_to_process.encode('utf-8')) <= 900:
+    max_bytes = 600
+    if len(text_to_process.encode('utf-8')) <= max_bytes:
         return text_to_process
 
     final_text = ""
@@ -59,7 +67,7 @@ def split_long_sentences(text: str) -> str:
         
         for sentence in all_sentences:
             # print('this is the number of bytes',len((sentence+"。").encode('utf-8')))
-            if len((sentence+"。").encode('utf-8')) < 850:
+            if len((sentence+"。").encode('utf-8')) < max_bytes:
 
                 # print('this text is fine the way it is. adding it as is' , sentence)
                 final_text+=f'{sentence}。'
@@ -67,18 +75,18 @@ def split_long_sentences(text: str) -> str:
                 broken_up_text = sentence.split('、')
                 for i,chunk in enumerate(broken_up_text):
                     
-                    if i<=len(broken_up_text)-1 and len((chunk+"。").encode('utf-8'))+ len(broken_up_text[i+1].encode('utf-8')) < 900:
+                    if i<len(broken_up_text)-1 and len((chunk+"。").encode('utf-8'))+ len(broken_up_text[i+1].encode('utf-8')) < max_bytes:
                         final_text += chunk+"、"
 
-                    elif i<=len(broken_up_text)-1 and len((chunk+"。").encode('utf-8'))+ len(broken_up_text[i+1].encode('utf-8')) >= 900:
+                    elif i<len(broken_up_text)-1 and len((chunk+"。").encode('utf-8'))+ len(broken_up_text[i+1].encode('utf-8')) >= max_bytes:
                         
-                        final_text += (chunk+"。")
+                        final_text += (chunk+"。 ")
                         break_points_inserted +=1
 
                     elif i==len(broken_up_text)-1:
-                        final_text += (chunk+"。")
+                        final_text += (chunk+"。 ")
 
-                    elif len(chunk.encode('utf-8')) > 900:
+                    elif len(chunk.encode('utf-8')) > max_bytes:
                         print('one single chunk is too long and cant be logically split with this. this is the chunk', chunk)
 
                     else:
@@ -86,20 +94,19 @@ def split_long_sentences(text: str) -> str:
         text_to_process = final_text
         if not break_points_inserted : 
             check_is_needed = False 
-
+    # print(final_text)
     return final_text
         
 def final_check_long_sentences(text: str) -> None:
     sentences = text.split('。')
     long_sentences_found = False
-    print(sentences)
-    print(f"Checking {len(sentences)} sentences for byte length > 900...")
+    print(f"Checking {len(sentences)} sentences for byte length > 400...")
     
     for i, sentence in enumerate(sentences):
         full_sentence = sentence + '。'
         byte_length = len(full_sentence.encode('utf-8'))
         
-        if byte_length > 900:
+        if byte_length > 400:
             print("-" * 40)
             print(f"Sentence {i+1} is too long:")
             print(f"  Byte Length: {byte_length} bytes")
