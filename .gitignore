@@ -1,8 +1,11 @@
 .env
 venv
 test.py
-textfiles
-audiofiles
+textfiles/*
+audiofiles/*
 betatext.py
 test/*
 !test/.gitkeep
+!textfiles/.gitkeep
+!audiofiles/.gitkeep
+
