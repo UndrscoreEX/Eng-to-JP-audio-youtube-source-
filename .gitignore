@@ -3,5 +3,6 @@ venv
 test.py
 textfiles
 audiofiles
-
 betatext.py
+test/*
+!test/.gitkeep
